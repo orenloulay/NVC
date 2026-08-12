@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/session";
 import Logo from "../components/Logo";
 import LogoutButton from "../components/LogoutButton";
+import Dashboard from "../components/Dashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -22,12 +23,7 @@ export default async function AppHome() {
         </div>
       </header>
 
-      <div className="mt-10">
-        <h1 className="text-2xl font-semibold">Your topics</h1>
-        <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
-          Groups and conversations are coming next. You’re signed in and verified.
-        </p>
-      </div>
+      <Dashboard />
     </main>
   );
 }
