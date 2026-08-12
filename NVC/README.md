@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# NVC — Nonviolent Communication
 
-## Getting Started
+A space where 1–10 people work through a topic together. Each person writes
+what they honestly feel; the others never see the raw words — the app translates
+each message into Nonviolent Communication (OFNR: Observations, Feelings, Needs,
+Requests) so it can be received without defensiveness. Chats are never saved; at
+the end of a session a PDF record (group name, date, and the NVC exchange) is
+emailed to the group. English and Hebrew are supported.
 
-First, run the development server:
+## Getting started
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000 — you'll land on the login page. Create an account,
+then check the **dev outbox** at http://localhost:3000/dev/outbox to read the
+verification/2FA codes and invitations (until a real email provider is wired in).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## How it's built (self-contained)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **Next.js 16** (App Router) + React 19 + Tailwind CSS v4
+- **SQLite** (`better-sqlite3`) — the whole backend runs from one file in `.data/`
+  (gitignored). Swap `lib/db.ts` for a hosted database later.
+- **Auth** — scrypt password hashing, signed-cookie sessions (`jose`), email
+  verification at signup and an emailed 6-digit **two-factor code** at login.
+- **Email** — every message lands in a dev outbox table (`lib/email.ts`); wire a
+  provider in `deliver()` to go live.
+- **NVC engine** — `lib/nvc.ts`, powered by Claude. Without a key it uses a
+  clearly-labeled heuristic that still preserves the privacy model.
+- **PDF** — `pdf-lib`, generated at session end and emailed to members.
 
-## Learn More
+## Environment variables
 
-To learn more about Next.js, take a look at the following resources:
+| Variable | Purpose |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | Enables real Claude NVC translation (otherwise a labeled draft/fallback is used). |
+| `NVC_MODEL` | Optional. Claude model id for translation. Defaults to `claude-opus-5`. |
+| `APP_URL` | Optional. Base URL used in invitation emails. Defaults to `http://localhost:3000`. |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Create a `.env.local` (gitignored) to set these:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+ANTHROPIC_API_KEY=sk-ant-...
+```

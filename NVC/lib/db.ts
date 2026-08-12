@@ -77,6 +77,15 @@ function init(): Database.Database {
       body       TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+
+    -- Attachments for outbox emails (e.g. the end-of-session PDF).
+    CREATE TABLE IF NOT EXISTS outbox_attachments (
+      id         TEXT PRIMARY KEY,
+      outbox_id  TEXT NOT NULL REFERENCES outbox(id),
+      filename   TEXT NOT NULL,
+      content    BLOB NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `);
 
   // Persist a session-signing secret so cookies survive restarts in dev.

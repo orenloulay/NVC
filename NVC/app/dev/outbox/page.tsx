@@ -19,6 +19,11 @@ export default function OutboxPage() {
     .prepare("SELECT * FROM outbox ORDER BY created_at DESC LIMIT 50")
     .all() as Mail[];
 
+  const attachmentsFor = (outboxId: string) =>
+    db
+      .prepare("SELECT id, filename FROM outbox_attachments WHERE outbox_id = ?")
+      .all(outboxId) as { id: string; filename: string }[];
+
   return (
     <main className="mx-auto max-w-2xl px-4 py-10">
       <h1 className="text-2xl font-semibold">Dev outbox</h1>
@@ -44,6 +49,17 @@ export default function OutboxPage() {
             <pre className="mt-2 whitespace-pre-wrap text-sm text-neutral-600 dark:text-neutral-300">
               {m.body}
             </pre>
+            {attachmentsFor(m.id).map((a) => (
+              <a
+                key={a.id}
+                href={`/dev/outbox/attachment/${a.id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-teal-200 px-3 py-1.5 text-sm text-teal-700 hover:bg-teal-50 dark:border-teal-800 dark:text-teal-300"
+              >
+                📎 {a.filename}
+              </a>
+            ))}
           </div>
         ))}
       </div>

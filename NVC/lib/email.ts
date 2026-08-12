@@ -7,10 +7,16 @@ import { newId } from "./crypto";
  * are all previewable at /dev/outbox. To go live, implement `deliver()` with a
  * real provider (e.g. Resend) — nothing else in the app changes.
  */
+export type Attachment = {
+  filename: string;
+  content: Uint8Array;
+};
+
 export type OutgoingEmail = {
   to: string;
   subject: string;
   body: string;
+  attachments?: Attachment[];
 };
 
 async function deliver(email: OutgoingEmail): Promise<void> {
@@ -23,9 +29,17 @@ async function deliver(email: OutgoingEmail): Promise<void> {
 }
 
 export async function sendEmail(email: OutgoingEmail): Promise<void> {
+  const outboxId = newId();
+  const now = new Date().toISOString();
   db.prepare(
     "INSERT INTO outbox (id, to_email, subject, body, created_at) VALUES (?, ?, ?, ?, ?)",
-  ).run(newId(), email.to.toLowerCase(), email.subject, email.body, new Date().toISOString());
+  ).run(outboxId, email.to.toLowerCase(), email.subject, email.body, now);
+
+  for (const att of email.attachments ?? []) {
+    db.prepare(
+      "INSERT INTO outbox_attachments (id, outbox_id, filename, content, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).run(newId(), outboxId, att.filename, Buffer.from(att.content), now);
+  }
 
   console.log(`[email] to=${email.to} subject="${email.subject}"`);
   await deliver(email);
