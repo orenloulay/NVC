@@ -7,7 +7,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const { id } = await params;
-  const result = acceptInvite(id, user.id, user.email);
+  const result = await acceptInvite(id, user.id, user.email);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
   return NextResponse.json({ ok: true });
 }

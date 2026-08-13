@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { getClient, dbGet, dbAll, dbRun, ensureSchema } from "./db";
 import { newId } from "./crypto";
 import { sendEmail } from "./email";
 
@@ -26,62 +26,64 @@ export type Member = {
   role: "owner" | "member";
 };
 
-export function activeMemberCount(groupId: string): number {
-  const row = db
-    .prepare("SELECT COUNT(*) AS n FROM memberships WHERE group_id = ? AND status = 'active'")
-    .get(groupId) as { n: number };
-  return row.n;
+export async function activeMemberCount(groupId: string): Promise<number> {
+  const row = await dbGet<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM memberships WHERE group_id = ? AND status = 'active'",
+    [groupId],
+  );
+  return row?.n ?? 0;
 }
 
-export function isActiveMember(groupId: string, userId: string): boolean {
-  const row = db
-    .prepare(
-      "SELECT 1 FROM memberships WHERE group_id = ? AND user_id = ? AND status = 'active'",
-    )
-    .get(groupId, userId);
+export async function isActiveMember(groupId: string, userId: string): Promise<boolean> {
+  const row = await dbGet(
+    "SELECT 1 AS one FROM memberships WHERE group_id = ? AND user_id = ? AND status = 'active'",
+    [groupId, userId],
+  );
   return !!row;
 }
 
-export function listGroupsForUser(userId: string): GroupSummary[] {
-  const rows = db
-    .prepare(
-      `SELECT g.id, g.name, g.created_at AS createdAt, m.role AS role
-       FROM memberships m
-       JOIN groups g ON g.id = m.group_id
-       WHERE m.user_id = ? AND m.status = 'active'
-       ORDER BY g.created_at DESC`,
-    )
-    .all(userId) as Omit<GroupSummary, "memberCount">[];
-  return rows.map((r) => ({ ...r, memberCount: activeMemberCount(r.id) }));
+export async function listGroupsForUser(userId: string): Promise<GroupSummary[]> {
+  const rows = await dbAll<Omit<GroupSummary, "memberCount">>(
+    `SELECT g.id, g.name, g.created_at AS createdAt, m.role AS role
+     FROM memberships m
+     JOIN groups g ON g.id = m.group_id
+     WHERE m.user_id = ? AND m.status = 'active'
+     ORDER BY g.created_at DESC`,
+    [userId],
+  );
+  return Promise.all(
+    rows.map(async (r) => ({ ...r, memberCount: await activeMemberCount(r.id) })),
+  );
 }
 
-export function listMembers(groupId: string): Member[] {
-  return db
-    .prepare(
-      `SELECT m.user_id AS userId, u.email AS email, m.role AS role
-       FROM memberships m JOIN users u ON u.id = m.user_id
-       WHERE m.group_id = ? AND m.status = 'active'
-       ORDER BY m.role = 'owner' DESC, u.email`,
-    )
-    .all(groupId) as Member[];
+export async function listMembers(groupId: string): Promise<Member[]> {
+  return dbAll<Member>(
+    `SELECT m.user_id AS userId, u.email AS email, m.role AS role
+     FROM memberships m JOIN users u ON u.id = m.user_id
+     WHERE m.group_id = ? AND m.status = 'active'
+     ORDER BY m.role = 'owner' DESC, u.email`,
+    [groupId],
+  );
 }
 
-export function createGroup(userId: string, name: string): string {
+export async function createGroup(userId: string, name: string): Promise<string> {
   const groupId = newId();
   const now = new Date().toISOString();
-  const tx = db.transaction(() => {
-    db.prepare("INSERT INTO groups (id, name, created_by, created_at) VALUES (?, ?, ?, ?)").run(
-      groupId,
-      name,
-      userId,
-      now,
-    );
-    db.prepare(
-      `INSERT INTO memberships (id, group_id, user_id, role, status, joined_at)
-       VALUES (?, ?, ?, 'owner', 'active', ?)`,
-    ).run(newId(), groupId, userId, now);
-  });
-  tx();
+  await ensureSchema();
+  await getClient().batch(
+    [
+      {
+        sql: "INSERT INTO groups (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+        args: [groupId, name, userId, now],
+      },
+      {
+        sql: `INSERT INTO memberships (id, group_id, user_id, role, status, joined_at)
+              VALUES (?, ?, ?, 'owner', 'active', ?)`,
+        args: [newId(), groupId, userId, now],
+      },
+    ],
+    "write",
+  );
   return groupId;
 }
 
@@ -92,44 +94,48 @@ export async function inviteToGroup(
   inviterId: string,
   inviteeEmail: string,
 ): Promise<Result> {
-  if (!isActiveMember(groupId, inviterId)) return { ok: false, error: "You are not in this group." };
-  if (activeMemberCount(groupId) >= MAX_MEMBERS) {
+  if (!(await isActiveMember(groupId, inviterId)))
+    return { ok: false, error: "You are not in this group." };
+  if ((await activeMemberCount(groupId)) >= MAX_MEMBERS) {
     return { ok: false, error: `Groups are limited to ${MAX_MEMBERS} people.` };
   }
 
-  const group = db.prepare("SELECT name FROM groups WHERE id = ?").get(groupId) as
-    | { name: string }
-    | undefined;
+  const group = await dbGet<{ name: string }>("SELECT name FROM groups WHERE id = ?", [
+    groupId,
+  ]);
   if (!group) return { ok: false, error: "Group not found." };
 
   // Already an active member?
-  const existingUser = db.prepare("SELECT id FROM users WHERE email = ?").get(inviteeEmail) as
-    | { id: string }
-    | undefined;
-  if (existingUser && isActiveMember(groupId, existingUser.id)) {
+  const existingUser = await dbGet<{ id: string }>(
+    "SELECT id FROM users WHERE email = ?",
+    [inviteeEmail],
+  );
+  if (existingUser && (await isActiveMember(groupId, existingUser.id))) {
     return { ok: false, error: "That person is already in the group." };
   }
 
   // Existing pending invite?
-  const dup = db
-    .prepare("SELECT 1 FROM invites WHERE group_id = ? AND email = ? AND status = 'pending'")
-    .get(groupId, inviteeEmail);
+  const dup = await dbGet(
+    "SELECT 1 AS one FROM invites WHERE group_id = ? AND email = ? AND status = 'pending'",
+    [groupId, inviteeEmail],
+  );
   if (dup) return { ok: false, error: "There's already a pending invite for that email." };
 
-  const inviter = db.prepare("SELECT email FROM users WHERE id = ?").get(inviterId) as {
-    email: string;
-  };
+  const inviter = await dbGet<{ email: string }>("SELECT email FROM users WHERE id = ?", [
+    inviterId,
+  ]);
 
-  db.prepare(
+  await dbRun(
     `INSERT INTO invites (id, group_id, email, invited_by, status, created_at)
      VALUES (?, ?, ?, ?, 'pending', ?)`,
-  ).run(newId(), groupId, inviteeEmail, inviterId, new Date().toISOString());
+    [newId(), groupId, inviteeEmail, inviterId, new Date().toISOString()],
+  );
 
   await sendEmail({
     to: inviteeEmail,
-    subject: `${inviter.email} invited you to a topic on NVC`,
+    subject: `${inviter?.email ?? "Someone"} invited you to a topic on NVC`,
     body:
-      `${inviter.email} invited you to join the topic "${group.name}" on NVC.\n\n` +
+      `${inviter?.email ?? "Someone"} invited you to join the topic "${group.name}" on NVC.\n\n` +
       `Sign in (or create an account with this email) to accept:\n` +
       `${process.env.APP_URL ?? "http://localhost:3000"}/app`,
   });
@@ -137,78 +143,99 @@ export async function inviteToGroup(
   return { ok: true };
 }
 
-export function listPendingInvitesForEmail(email: string): PendingInvite[] {
-  return db
-    .prepare(
-      `SELECT i.id, i.group_id AS groupId, g.name AS groupName,
-              u.email AS invitedByEmail, i.created_at AS createdAt
-       FROM invites i
-       JOIN groups g ON g.id = i.group_id
-       JOIN users u ON u.id = i.invited_by
-       WHERE i.email = ? AND i.status = 'pending'
-       ORDER BY i.created_at DESC`,
-    )
-    .all(email) as PendingInvite[];
+export async function listPendingInvitesForEmail(email: string): Promise<PendingInvite[]> {
+  return dbAll<PendingInvite>(
+    `SELECT i.id, i.group_id AS groupId, g.name AS groupName,
+            u.email AS invitedByEmail, i.created_at AS createdAt
+     FROM invites i
+     JOIN groups g ON g.id = i.group_id
+     JOIN users u ON u.id = i.invited_by
+     WHERE i.email = ? AND i.status = 'pending'
+     ORDER BY i.created_at DESC`,
+    [email],
+  );
 }
 
-export function acceptInvite(inviteId: string, userId: string, userEmail: string): Result {
-  const invite = db
-    .prepare("SELECT group_id, email, status FROM invites WHERE id = ?")
-    .get(inviteId) as { group_id: string; email: string; status: string } | undefined;
-  if (!invite || invite.status !== "pending") return { ok: false, error: "Invite is no longer valid." };
-  if (invite.email !== userEmail) return { ok: false, error: "This invite is for a different email." };
+export async function acceptInvite(
+  inviteId: string,
+  userId: string,
+  userEmail: string,
+): Promise<Result> {
+  const invite = await dbGet<{ group_id: string; email: string; status: string }>(
+    "SELECT group_id, email, status FROM invites WHERE id = ?",
+    [inviteId],
+  );
+  if (!invite || invite.status !== "pending")
+    return { ok: false, error: "Invite is no longer valid." };
+  if (invite.email !== userEmail)
+    return { ok: false, error: "This invite is for a different email." };
 
-  if (activeMemberCount(invite.group_id) >= MAX_MEMBERS) {
+  if ((await activeMemberCount(invite.group_id)) >= MAX_MEMBERS) {
     return { ok: false, error: `That group is full (${MAX_MEMBERS} people).` };
   }
 
   const now = new Date().toISOString();
-  const tx = db.transaction(() => {
-    db.prepare("UPDATE invites SET status = 'accepted' WHERE id = ?").run(inviteId);
+  await ensureSchema();
+  const tx = await getClient().transaction("write");
+  try {
+    await tx.execute({
+      sql: "UPDATE invites SET status = 'accepted' WHERE id = ?",
+      args: [inviteId],
+    });
     // Reactivate a prior membership (e.g. they had left) or create a new one.
-    const existing = db
-      .prepare("SELECT id FROM memberships WHERE group_id = ? AND user_id = ?")
-      .get(invite.group_id, userId) as { id: string } | undefined;
-    if (existing) {
-      db.prepare("UPDATE memberships SET status = 'active', joined_at = ? WHERE id = ?").run(
-        now,
-        existing.id,
-      );
+    const existing = await tx.execute({
+      sql: "SELECT id FROM memberships WHERE group_id = ? AND user_id = ?",
+      args: [invite.group_id, userId],
+    });
+    if (existing.rows.length > 0) {
+      await tx.execute({
+        sql: "UPDATE memberships SET status = 'active', joined_at = ? WHERE id = ?",
+        args: [now, existing.rows[0].id as string],
+      });
     } else {
-      db.prepare(
-        `INSERT INTO memberships (id, group_id, user_id, role, status, joined_at)
-         VALUES (?, ?, ?, 'member', 'active', ?)`,
-      ).run(newId(), invite.group_id, userId, now);
+      await tx.execute({
+        sql: `INSERT INTO memberships (id, group_id, user_id, role, status, joined_at)
+              VALUES (?, ?, ?, 'member', 'active', ?)`,
+        args: [newId(), invite.group_id, userId, now],
+      });
     }
-  });
-  tx();
+    await tx.commit();
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  }
   return { ok: true };
 }
 
-export function declineInvite(inviteId: string, userEmail: string): Result {
-  const invite = db
-    .prepare("SELECT email, status FROM invites WHERE id = ?")
-    .get(inviteId) as { email: string; status: string } | undefined;
-  if (!invite || invite.status !== "pending") return { ok: false, error: "Invite is no longer valid." };
-  if (invite.email !== userEmail) return { ok: false, error: "This invite is for a different email." };
-  db.prepare("UPDATE invites SET status = 'declined' WHERE id = ?").run(inviteId);
+export async function declineInvite(inviteId: string, userEmail: string): Promise<Result> {
+  const invite = await dbGet<{ email: string; status: string }>(
+    "SELECT email, status FROM invites WHERE id = ?",
+    [inviteId],
+  );
+  if (!invite || invite.status !== "pending")
+    return { ok: false, error: "Invite is no longer valid." };
+  if (invite.email !== userEmail)
+    return { ok: false, error: "This invite is for a different email." };
+  await dbRun("UPDATE invites SET status = 'declined' WHERE id = ?", [inviteId]);
   return { ok: true };
 }
 
 // Leaving sets the membership to 'left'. Rejoining requires a fresh invite,
 // which reactivates the same membership row on accept.
-export function leaveGroup(groupId: string, userId: string): Result {
-  const m = db
-    .prepare("SELECT id FROM memberships WHERE group_id = ? AND user_id = ? AND status = 'active'")
-    .get(groupId, userId) as { id: string } | undefined;
+export async function leaveGroup(groupId: string, userId: string): Promise<Result> {
+  const m = await dbGet<{ id: string }>(
+    "SELECT id FROM memberships WHERE group_id = ? AND user_id = ? AND status = 'active'",
+    [groupId, userId],
+  );
   if (!m) return { ok: false, error: "You are not in this group." };
-  db.prepare("UPDATE memberships SET status = 'left' WHERE id = ?").run(m.id);
+  await dbRun("UPDATE memberships SET status = 'left' WHERE id = ?", [m.id]);
   return { ok: true };
 }
 
-export function getGroupForMember(groupId: string, userId: string) {
-  if (!isActiveMember(groupId, userId)) return null;
-  return db.prepare("SELECT id, name, created_by AS createdBy, created_at AS createdAt FROM groups WHERE id = ?").get(
-    groupId,
-  ) as { id: string; name: string; createdBy: string; createdAt: string } | undefined;
+export async function getGroupForMember(groupId: string, userId: string) {
+  if (!(await isActiveMember(groupId, userId))) return null;
+  return dbGet<{ id: string; name: string; createdBy: string; createdAt: string }>(
+    "SELECT id, name, created_by AS createdBy, created_at AS createdAt FROM groups WHERE id = ?",
+    [groupId],
+  );
 }

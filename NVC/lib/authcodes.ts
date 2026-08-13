@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { dbGet, dbRun } from "./db";
 import { newId, generateCode, hashCode, verifyCode } from "./crypto";
 import { sendEmail } from "./email";
 
@@ -14,16 +14,18 @@ const subjects: Record<Purpose, string> = {
 
 export async function issueCode(email: string, purpose: Purpose): Promise<void> {
   // Invalidate any outstanding codes of the same purpose for this email.
-  db.prepare(
+  await dbRun(
     "UPDATE auth_codes SET consumed = 1 WHERE email = ? AND purpose = ? AND consumed = 0",
-  ).run(email, purpose);
+    [email, purpose],
+  );
 
   const code = generateCode();
   const expires = new Date(Date.now() + CODE_TTL_MIN * 60_000).toISOString();
-  db.prepare(
+  await dbRun(
     `INSERT INTO auth_codes (id, email, code_hash, purpose, expires_at, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(newId(), email, hashCode(code), purpose, expires, new Date().toISOString());
+    [newId(), email, hashCode(code), purpose, expires, new Date().toISOString()],
+  );
 
   await sendEmail({
     to: email,
@@ -37,32 +39,38 @@ export async function issueCode(email: string, purpose: Purpose): Promise<void> 
 
 type CheckResult = { ok: true } | { ok: false; error: string };
 
-export function checkCode(email: string, purpose: Purpose, code: string): CheckResult {
-  const row = db
-    .prepare(
-      `SELECT * FROM auth_codes
-       WHERE email = ? AND purpose = ? AND consumed = 0
-       ORDER BY created_at DESC LIMIT 1`,
-    )
-    .get(email, purpose) as
-    | { id: string; code_hash: string; expires_at: string; attempts: number }
-    | undefined;
+export async function checkCode(
+  email: string,
+  purpose: Purpose,
+  code: string,
+): Promise<CheckResult> {
+  const row = await dbGet<{
+    id: string;
+    code_hash: string;
+    expires_at: string;
+    attempts: number;
+  }>(
+    `SELECT * FROM auth_codes
+     WHERE email = ? AND purpose = ? AND consumed = 0
+     ORDER BY created_at DESC LIMIT 1`,
+    [email, purpose],
+  );
 
   if (!row) return { ok: false, error: "No active code. Request a new one." };
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    db.prepare("UPDATE auth_codes SET consumed = 1 WHERE id = ?").run(row.id);
+    await dbRun("UPDATE auth_codes SET consumed = 1 WHERE id = ?", [row.id]);
     return { ok: false, error: "Code expired. Request a new one." };
   }
   if (row.attempts >= MAX_ATTEMPTS) {
-    db.prepare("UPDATE auth_codes SET consumed = 1 WHERE id = ?").run(row.id);
+    await dbRun("UPDATE auth_codes SET consumed = 1 WHERE id = ?", [row.id]);
     return { ok: false, error: "Too many attempts. Request a new one." };
   }
 
   if (!verifyCode(code, row.code_hash)) {
-    db.prepare("UPDATE auth_codes SET attempts = attempts + 1 WHERE id = ?").run(row.id);
+    await dbRun("UPDATE auth_codes SET attempts = attempts + 1 WHERE id = ?", [row.id]);
     return { ok: false, error: "Incorrect code." };
   }
 
-  db.prepare("UPDATE auth_codes SET consumed = 1 WHERE id = ?").run(row.id);
+  await dbRun("UPDATE auth_codes SET consumed = 1 WHERE id = ?", [row.id]);
   return { ok: true };
 }

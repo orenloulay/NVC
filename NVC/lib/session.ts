@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
-import { sessionSecret, db } from "./db";
+import { sessionSecret, dbGet } from "./db";
 
 const SESSION_COOKIE = "nvc_session";
 const CHALLENGE_COOKIE = "nvc_challenge";
@@ -13,12 +13,12 @@ async function sign(payload: Record<string, unknown>, expires: string): Promise<
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(expires)
-    .sign(sessionSecret());
+    .sign(await sessionSecret());
 }
 
 async function verify<T>(token: string): Promise<T | null> {
   try {
-    const { payload } = await jwtVerify(token, sessionSecret());
+    const { payload } = await jwtVerify(token, await sessionSecret());
     return payload as T;
   } catch {
     return null;
@@ -47,9 +47,10 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   if (!token) return null;
   const payload = await verify<{ sub: string }>(token);
   if (!payload?.sub) return null;
-  const user = db
-    .prepare("SELECT id, email FROM users WHERE id = ?")
-    .get(payload.sub) as SessionUser | undefined;
+  const user = await dbGet<SessionUser>(
+    "SELECT id, email FROM users WHERE id = ?",
+    [payload.sub],
+  );
   return user ?? null;
 }
 

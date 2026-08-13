@@ -6,8 +6,8 @@ export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   return NextResponse.json({
-    groups: listGroupsForUser(user.id),
-    invites: listPendingInvitesForEmail(user.email),
+    groups: await listGroupsForUser(user.id),
+    invites: await listPendingInvitesForEmail(user.email),
   });
 }
 
@@ -24,6 +24,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Topic name is too long." }, { status: 400 });
   }
 
-  const id = createGroup(user.id, trimmed);
+  const id = await createGroup(user.id, trimmed);
   return NextResponse.json({ ok: true, id });
 }

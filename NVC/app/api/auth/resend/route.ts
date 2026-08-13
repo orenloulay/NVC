@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { dbGet } from "@/lib/db";
 import { normalizeEmail } from "@/lib/validation";
 import { issueCode } from "@/lib/authcodes";
 import { readChallenge } from "@/lib/session";
@@ -18,9 +18,10 @@ export async function POST(req: Request) {
   // verify
   const email = normalizeEmail(rawEmail);
   if (!email) return NextResponse.json({ error: "Valid email required." }, { status: 400 });
-  const user = db.prepare("SELECT email_verified FROM users WHERE email = ?").get(email) as
-    | { email_verified: number }
-    | undefined;
+  const user = await dbGet<{ email_verified: number }>(
+    "SELECT email_verified FROM users WHERE email = ?",
+    [email],
+  );
   if (user && !user.email_verified) await issueCode(email, "verify");
   // Uniform ok regardless, to avoid leaking account existence.
   return NextResponse.json({ ok: true });
