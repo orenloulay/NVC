@@ -12,11 +12,11 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const { id } = await params;
-  if (!isActiveMember(id, user.id)) {
+  if (!(await isActiveMember(id, user.id))) {
     return NextResponse.json({ error: "You are not in this group." }, { status: 403 });
   }
 
-  const group = getGroupForMember(id, user.id);
+  const group = await getGroupForMember(id, user.id);
   if (!group) return NextResponse.json({ error: "Group not found." }, { status: 404 });
 
   const ended = endSession(id);
@@ -35,7 +35,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const dateLabel = now.toISOString().slice(0, 10);
   const filename = `nvc-${group.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${dateLabel}.pdf`;
 
-  const members = listMembers(id);
+  const members = await listMembers(id);
   for (const m of members) {
     await sendEmail({
       to: m.email,

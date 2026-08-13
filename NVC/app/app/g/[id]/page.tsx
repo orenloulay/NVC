@@ -13,10 +13,10 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
   if (!user) redirect("/login");
 
   const { id } = await params;
-  const group = getGroupForMember(id, user.id);
+  const group = await getGroupForMember(id, user.id);
   if (!group) redirect("/app");
 
-  const members = listMembers(id);
+  const members = await listMembers(id);
 
   return (
     <main className="mx-auto flex min-h-full max-w-2xl flex-col px-4 py-8">

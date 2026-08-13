@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
-    "better-sqlite3": "^13.0.3",
+    "@libsql/client": "^0.15.0",
     "jose": "^6.2.8",
     "next": "16.3.0",
     "pdf-lib": "^1.17.1",
@@ -19,7 +19,6 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

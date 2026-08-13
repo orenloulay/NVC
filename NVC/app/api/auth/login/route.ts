@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { dbGet } from "@/lib/db";
 import { verifyPassword } from "@/lib/crypto";
 import { normalizeEmail } from "@/lib/validation";
 import { issueCode } from "@/lib/authcodes";
@@ -13,9 +13,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Email and password are required." }, { status: 400 });
   }
 
-  const user = db
-    .prepare("SELECT id, password_hash, email_verified FROM users WHERE email = ?")
-    .get(email) as { id: string; password_hash: string; email_verified: number } | undefined;
+  const user = await dbGet<{ id: string; password_hash: string; email_verified: number }>(
+    "SELECT id, password_hash, email_verified FROM users WHERE email = ?",
+    [email],
+  );
 
   // Uniform response whether or not the account exists, to avoid leaking which
   // emails are registered.

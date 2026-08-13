@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { dbGet } from "@/lib/db";
 import { checkCode } from "@/lib/authcodes";
 import { readChallenge, clearChallenge, createSession } from "@/lib/session";
 
@@ -14,12 +14,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Code is required." }, { status: 400 });
   }
 
-  const result = checkCode(email, "login", code.trim());
+  const result = await checkCode(email, "login", code.trim());
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
 
-  const user = db.prepare("SELECT id FROM users WHERE email = ?").get(email) as
-    | { id: string }
-    | undefined;
+  const user = await dbGet<{ id: string }>("SELECT id FROM users WHERE email = ?", [email]);
   if (!user) return NextResponse.json({ error: "Account not found." }, { status: 404 });
 
   await clearChallenge();

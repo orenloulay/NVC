@@ -9,7 +9,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const { id } = await params;
-  if (!isActiveMember(id, user.id)) {
+  if (!(await isActiveMember(id, user.id))) {
     return NextResponse.json({ error: "You are not in this group." }, { status: 403 });
   }
 

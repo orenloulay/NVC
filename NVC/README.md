@@ -18,29 +18,61 @@ Open http://localhost:3000 — you'll land on the login page. Create an account,
 then check the **dev outbox** at http://localhost:3000/dev/outbox to read the
 verification/2FA codes and invitations (until a real email provider is wired in).
 
-## How it's built (self-contained)
+## How it's built
 
 - **Next.js 16** (App Router) + React 19 + Tailwind CSS v4
-- **SQLite** (`better-sqlite3`) — the whole backend runs from one file in `.data/`
-  (gitignored). Swap `lib/db.ts` for a hosted database later.
+- **Database** — hosted **libSQL / Turso** (SQLite-compatible) via
+  `@libsql/client`, in `lib/db.ts`. Runs anywhere, including serverless
+  platforms (Vercel) where the local filesystem is ephemeral.
 - **Auth** — scrypt password hashing, signed-cookie sessions (`jose`), email
   verification at signup and an emailed 6-digit **two-factor code** at login.
-- **Email** — every message lands in a dev outbox table (`lib/email.ts`); wire a
-  provider in `deliver()` to go live.
+- **Email** — every message is recorded in an `outbox` table (previewable at
+  `/dev/outbox` in development) and delivered for real via **Resend** when
+  `RESEND_API_KEY` is set (`lib/email.ts`).
 - **NVC engine** — `lib/nvc.ts`, powered by Claude. Without a key it uses a
   clearly-labeled heuristic that still preserves the privacy model.
 - **PDF** — `pdf-lib`, generated at session end and emailed to members.
 
 ## Environment variables
 
-| Variable | Purpose |
-| --- | --- |
-| `ANTHROPIC_API_KEY` | Enables real Claude NVC translation (otherwise a labeled draft/fallback is used). |
-| `NVC_MODEL` | Optional. Claude model id for translation. Defaults to `claude-opus-5`. |
-| `APP_URL` | Optional. Base URL used in invitation emails. Defaults to `http://localhost:3000`. |
+Copy `.env.example` to `.env.local` and fill it in.
 
-Create a `.env.local` (gitignored) to set these:
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `TURSO_DATABASE_URL` | **Yes** | libSQL/Turso database URL (`libsql://…`). |
+| `TURSO_AUTH_TOKEN` | **Yes** | Auth token for the Turso database. |
+| `RESEND_API_KEY` | Yes in prod | Delivers verification/2FA/invite emails. Without it, codes are recorded but never sent — so no one can sign in on a deployed site. |
+| `RESEND_FROM` | Optional | Verified sender address. Defaults to Resend's shared sandbox (`onboarding@resend.dev`), which only delivers to your own Resend account email. |
+| `ANTHROPIC_API_KEY` | Optional | Enables real Claude NVC translation (otherwise a labeled fallback is used). |
+| `NVC_MODEL` | Optional | Claude model id for translation. Defaults to `claude-opus-5`. |
+| `APP_URL` | Optional | Base URL used in invitation emails. Set to your deployment URL in production. |
+| `SESSION_SECRET` | Optional | Stable session-signing secret. If unset, one is generated and stored in the database. |
 
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
-```
+## Deploy to Vercel
+
+This Next.js app lives in the `NVC/` subdirectory of the repository, so a couple
+of settings matter.
+
+1. **Provision a database.** Create a free Turso database and grab its URL +
+   token (https://turso.tech):
+   ```bash
+   turso db create nvc
+   turso db show nvc --url        # -> TURSO_DATABASE_URL
+   turso db tokens create nvc     # -> TURSO_AUTH_TOKEN
+   ```
+   The schema is created automatically on first request — no migration step.
+
+2. **Set up email** so login codes can be delivered. Create a Resend account,
+   add an API key, and (for real recipients) verify a sending domain
+   (https://resend.com). Set `RESEND_API_KEY` and `RESEND_FROM`.
+
+3. **Import the repo into Vercel** (https://vercel.com/new). In the project
+   settings, set **Root Directory** to `NVC`. Vercel auto-detects Next.js — no
+   other build configuration is needed.
+
+4. **Add the environment variables** from the table above in the Vercel project
+   (at minimum `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `RESEND_API_KEY`).
+   Set `APP_URL` to your deployment URL.
+
+5. **Deploy.** After the first deploy, open the site and create an account —
+   your 2FA/verification code arrives by email.

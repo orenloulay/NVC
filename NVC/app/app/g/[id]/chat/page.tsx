@@ -10,7 +10,7 @@ export default async function ChatPage({ params }: { params: Promise<{ id: strin
   if (!user) redirect("/login");
 
   const { id } = await params;
-  const group = getGroupForMember(id, user.id);
+  const group = await getGroupForMember(id, user.id);
   if (!group) redirect("/app");
 
   return <ChatView groupId={group.id} groupName={group.name} />;
