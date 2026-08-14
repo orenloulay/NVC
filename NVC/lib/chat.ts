@@ -11,6 +11,10 @@ export type ChatMessage = {
   original: string; // shown only to the author
   nvc: string; // shown to everyone else
   engine: "claude" | "fallback";
+  // A message is first created as a private draft: only the author can see it,
+  // together with the NVC translation the others would receive. Nothing is
+  // shared until the author approves it.
+  approved: boolean;
   createdAt: string;
 };
 
@@ -43,13 +47,50 @@ export function addMessage(
   return full;
 }
 
-// Returns what a given viewer is allowed to see: their own original text, and
-// the NVC translation of everyone else's messages.
+// Approve a draft so its NVC translation becomes visible to the group. Only the
+// author may approve their own message. Returns the message, or null if it
+// isn't found / isn't the viewer's.
+export function approveMessage(
+  groupId: string,
+  messageId: string,
+  viewerId: string,
+): ChatMessage | null {
+  const session = sessions.get(groupId);
+  if (!session) return null;
+  const m = session.messages.find((x) => x.id === messageId && x.senderId === viewerId);
+  if (!m) return null;
+  m.approved = true;
+  return m;
+}
+
+// Discard a not-yet-approved draft. Only the author may discard their own
+// draft. Returns true if a draft was removed.
+export function discardMessage(
+  groupId: string,
+  messageId: string,
+  viewerId: string,
+): boolean {
+  const session = sessions.get(groupId);
+  if (!session) return false;
+  const idx = session.messages.findIndex(
+    (x) => x.id === messageId && x.senderId === viewerId && !x.approved,
+  );
+  if (idx === -1) return false;
+  session.messages.splice(idx, 1);
+  return true;
+}
+
+// Returns what a given viewer is allowed to see. The author sees their own
+// messages (draft or approved) along with the NVC translation others would
+// receive, so they can review and approve. Everyone else sees only the NVC
+// translation of messages that have been approved.
 export type ViewerMessage = {
   id: string;
   senderEmail: string;
   mine: boolean;
-  text: string;
+  text: string; // author: their original words; others: the NVC translation
+  nvc?: string; // the NVC translation others see — included only for the author
+  approved: boolean;
   engine: "claude" | "fallback";
   createdAt: string;
 };
@@ -57,14 +98,21 @@ export type ViewerMessage = {
 export function messagesForViewer(groupId: string, viewerId: string): ViewerMessage[] {
   const session = sessions.get(groupId);
   if (!session) return [];
-  return session.messages.map((m) => ({
-    id: m.id,
-    senderEmail: m.senderEmail,
-    mine: m.senderId === viewerId,
-    text: m.senderId === viewerId ? m.original : m.nvc,
-    engine: m.engine,
-    createdAt: m.createdAt,
-  }));
+  return session.messages
+    .filter((m) => m.senderId === viewerId || m.approved)
+    .map((m) => {
+      const mine = m.senderId === viewerId;
+      return {
+        id: m.id,
+        senderEmail: m.senderEmail,
+        mine,
+        text: mine ? m.original : m.nvc,
+        nvc: mine ? m.nvc : undefined,
+        approved: m.approved,
+        engine: m.engine,
+        createdAt: m.createdAt,
+      };
+    });
 }
 
 export function hasSession(groupId: string): boolean {
