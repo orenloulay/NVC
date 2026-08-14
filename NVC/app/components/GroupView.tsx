@@ -20,7 +20,7 @@ export default function GroupView({
 }) {
   const router = useRouter();
   const [inviteEmail, setInviteEmail] = useState("");
-  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [msg, setMsg] = useState<{ kind: "ok" | "err" | "info"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   // Set to the email that already has a pending invite, so we can offer to
   // send a fresh one instead of silently blocking.
@@ -39,10 +39,10 @@ export default function GroupView({
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
-      // Already invited: offer to resend rather than treating it as an error.
+      // Already invited: this is not a failure — offer to send a fresh invite.
       if (data.alreadyInvited) {
         setResendFor(email);
-        setMsg({ kind: "err", text: data.error ?? "An invite was already sent." });
+        setMsg(null);
         return;
       }
       setResendFor(null);
@@ -144,36 +144,43 @@ export default function GroupView({
         {msg && (
           <p
             className={`mt-2 text-sm ${
-              msg.kind === "ok" ? "text-teal-600 dark:text-teal-400" : "text-red-600 dark:text-red-400"
+              msg.kind === "ok"
+                ? "text-teal-600 dark:text-teal-400"
+                : msg.kind === "info"
+                  ? "text-neutral-600 dark:text-neutral-300"
+                  : "text-red-600 dark:text-red-400"
             }`}
           >
             {msg.text}
           </p>
         )}
         {resendFor && (
-          <div className="mt-2 flex items-center gap-3 text-sm">
-            <span className="text-neutral-600 dark:text-neutral-300">
-              Send a new invite to {resendFor}?
-            </span>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => sendInvite(resendFor, true)}
-              className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
-            >
-              {busy ? "Sending…" : "Send new invite"}
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setResendFor(null);
-                setMsg(null);
-              }}
-              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm text-neutral-600 hover:bg-neutral-100 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-            >
-              Cancel
-            </button>
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm dark:border-amber-900/50 dark:bg-amber-950/20">
+            <p className="text-amber-800 dark:text-amber-200">
+              You already invited <span className="font-medium">{resendFor}</span>, but they
+              haven’t accepted yet. Send the invite again?
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => sendInvite(resendFor, true)}
+                className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+              >
+                {busy ? "Sending…" : "Send new invite"}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setResendFor(null);
+                  setMsg(null);
+                }}
+                className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm text-neutral-600 hover:bg-neutral-100 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         )}
       </section>

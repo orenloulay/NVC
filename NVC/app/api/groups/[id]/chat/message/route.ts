@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/session";
 import { isActiveMember } from "@/lib/groups";
-import { translateToNVC, type Lang } from "@/lib/nvc";
+import { translateToNVC, detectLang } from "@/lib/nvc";
 import { addMessage } from "@/lib/chat";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -13,12 +13,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: "You are not in this group." }, { status: 403 });
   }
 
-  const { text, lang } = await req.json().catch(() => ({}));
+  const { text } = await req.json().catch(() => ({}));
   const clean = typeof text === "string" ? text.trim() : "";
   if (!clean) return NextResponse.json({ error: "Write something first." }, { status: 400 });
   if (clean.length > 4000) return NextResponse.json({ error: "That message is too long." }, { status: 400 });
 
-  const language: Lang = lang === "he" ? "he" : "en";
+  // Translate into the same language the writer used: English in → English out,
+  // Hebrew in → Hebrew out. Detected from the message itself, not a UI toggle.
+  const language = detectLang(clean);
   const { nvc, engine } = await translateToNVC(clean, language);
 
   // Stored as a private draft — not shared with the group until the author

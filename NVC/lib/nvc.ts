@@ -26,6 +26,14 @@ function langInstruction(lang: Lang): string {
     : "Write the NVC message in natural English.";
 }
 
+// Detect the language of the source message from its content: any Hebrew
+// letters → Hebrew, otherwise English. This decides which language the NVC
+// translation is written in, so the output always matches what the writer
+// actually typed (English in → English out, Hebrew in → Hebrew out).
+export function detectLang(text: string): Lang {
+  return /[\u0590-\u05FF]/.test(text) ? "he" : "en";
+}
+
 const MODEL = process.env.NVC_MODEL ?? "claude-opus-5";
 
 async function translateWithClaude(text: string, lang: Lang): Promise<string> {
