@@ -9,6 +9,8 @@ type Msg = {
   senderEmail: string;
   mine: boolean;
   text: string;
+  nvc?: string;
+  approved: boolean;
   engine: "claude" | "fallback";
   createdAt: string;
 };
@@ -64,6 +66,34 @@ export default function ChatView({ groupId, groupName }: { groupId: string; grou
     load();
   }
 
+  async function approve(id: string) {
+    setError(null);
+    const res = await fetch(`/api/groups/${groupId}/chat/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: id }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "Could not approve.");
+    }
+    load();
+  }
+
+  async function discard(id: string) {
+    setError(null);
+    const res = await fetch(`/api/groups/${groupId}/chat/discard`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: id }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "Could not discard.");
+    }
+    load();
+  }
+
   async function endSession() {
     if (!confirm("End this session? A PDF record will be emailed to the group and the chat will be cleared.")) return;
     setEnding(true);
@@ -103,9 +133,9 @@ export default function ChatView({ groupId, groupName }: { groupId: string; grou
       </header>
 
       <p className="mt-3 rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-800 dark:bg-teal-950/30 dark:text-teal-200">
-        Write what you honestly feel. Others won’t see your raw words — they’ll see them gently
-        translated into Nonviolent Communication. Nothing here is saved; a PDF record is emailed
-        when the session ends.
+        Write what you honestly feel. You’ll first see the Nonviolent Communication translation the
+        others would receive, and nothing is shared until you approve it. Nothing here is saved; a
+        PDF record of the approved messages is emailed when the session ends.
       </p>
 
       <div ref={scrollRef} className="mt-3 flex flex-1 flex-col gap-3 overflow-y-auto py-2">
@@ -120,12 +150,49 @@ export default function ChatView({ groupId, groupName }: { groupId: string; grou
             <div
               className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm ${
                 m.mine
-                  ? "bg-teal-600 text-white"
+                  ? m.approved
+                    ? "bg-teal-600 text-white"
+                    : "border border-dashed border-teal-400 bg-teal-50 text-neutral-800 dark:bg-teal-950/20 dark:text-neutral-100"
                   : "bg-neutral-100 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-100"
               }`}
             >
               {m.text}
             </div>
+
+            {/* Author reviewing their own not-yet-approved draft. */}
+            {m.mine && !m.approved && (
+              <div className="mt-1 flex max-w-[85%] flex-col items-end gap-1.5 rounded-2xl border border-teal-200 bg-white px-3.5 py-2.5 text-sm dark:border-teal-800 dark:bg-neutral-900">
+                <span className="self-start text-[11px] font-semibold uppercase tracking-wide text-teal-600 dark:text-teal-400">
+                  They’ll see
+                </span>
+                <p className="self-start text-left text-neutral-800 dark:text-neutral-100">
+                  {m.nvc}
+                </p>
+                {m.engine === "fallback" && (
+                  <span className="self-start text-[10px] text-amber-500">draft translation</span>
+                )}
+                <div className="mt-1 flex gap-2">
+                  <button
+                    onClick={() => discard(m.id)}
+                    className="rounded-full border border-neutral-300 px-3 py-1 text-xs text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  >
+                    Discard
+                  </button>
+                  <button
+                    onClick={() => approve(m.id)}
+                    className="rounded-full bg-teal-600 px-3 py-1 text-xs font-semibold text-white hover:bg-teal-700"
+                  >
+                    Approve &amp; send
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {m.mine && !m.approved && (
+              <span className="px-1 text-[10px] text-neutral-400">
+                Not shared yet — awaiting your approval
+              </span>
+            )}
             {!m.mine && m.engine === "fallback" && (
               <span className="px-1 text-[10px] text-amber-500">draft translation</span>
             )}

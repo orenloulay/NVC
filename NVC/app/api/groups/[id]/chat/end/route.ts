@@ -22,14 +22,18 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const ended = endSession(id);
   const now = new Date();
 
+  // Only messages that were approved (and therefore shared with the group) go
+  // into the record — and only their NVC translation, never the raw source.
   const pdf = await buildSessionPdf({
     groupName: group.name,
     date: now,
-    messages: (ended?.messages ?? []).map((m) => ({
-      senderEmail: m.senderEmail,
-      nvc: m.nvc,
-      createdAt: m.createdAt,
-    })),
+    messages: (ended?.messages ?? [])
+      .filter((m) => m.approved)
+      .map((m) => ({
+        senderEmail: m.senderEmail,
+        nvc: m.nvc,
+        createdAt: m.createdAt,
+      })),
   });
 
   const dateLabel = now.toISOString().slice(0, 10);

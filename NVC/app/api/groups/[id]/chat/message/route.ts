@@ -21,15 +21,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const language: Lang = lang === "he" ? "he" : "en";
   const { nvc, engine } = await translateToNVC(clean, language);
 
+  // Stored as a private draft — not shared with the group until the author
+  // reviews the NVC translation and approves it.
   const stored = addMessage(id, {
     senderId: user.id,
     senderEmail: user.email,
     original: clean,
     nvc,
     engine,
+    approved: false,
   });
 
-  // The author sees their own original text back.
+  // The author gets back their original text and the NVC translation the
+  // others would see, so they can approve it before it is shared.
   return NextResponse.json({
     ok: true,
     message: {
@@ -37,6 +41,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       senderEmail: user.email,
       mine: true,
       text: clean,
+      nvc,
+      approved: false,
       engine,
       createdAt: stored.createdAt,
     },

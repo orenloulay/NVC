@@ -89,11 +89,16 @@ export async function createGroup(userId: string, name: string): Promise<string>
 
 type Result = { ok: true } | { ok: false; error: string };
 
+// A pending invite already exists. The caller can offer to send it again and
+// then retry with `resend: true`.
+type InviteResult = Result | { ok: false; alreadyInvited: true; error: string };
+
 export async function inviteToGroup(
   groupId: string,
   inviterId: string,
   inviteeEmail: string,
-): Promise<Result> {
+  opts: { resend?: boolean } = {},
+): Promise<InviteResult> {
   if (!(await isActiveMember(groupId, inviterId)))
     return { ok: false, error: "You are not in this group." };
   if ((await activeMemberCount(groupId)) >= MAX_MEMBERS) {
@@ -114,22 +119,36 @@ export async function inviteToGroup(
     return { ok: false, error: "That person is already in the group." };
   }
 
-  // Existing pending invite?
-  const dup = await dbGet(
-    "SELECT 1 AS one FROM invites WHERE group_id = ? AND email = ? AND status = 'pending'",
+  // Existing pending invite? Unless the caller explicitly asked to resend,
+  // surface this so they can choose to send a fresh invite.
+  const dup = await dbGet<{ id: string }>(
+    "SELECT id FROM invites WHERE group_id = ? AND email = ? AND status = 'pending'",
     [groupId, inviteeEmail],
   );
-  if (dup) return { ok: false, error: "There's already a pending invite for that email." };
+  if (dup && !opts.resend) {
+    return {
+      ok: false,
+      alreadyInvited: true,
+      error: "An invite was already sent to that email and hasn't been accepted yet.",
+    };
+  }
 
   const inviter = await dbGet<{ email: string }>("SELECT email FROM users WHERE id = ?", [
     inviterId,
   ]);
+  const now = new Date().toISOString();
 
-  await dbRun(
-    `INSERT INTO invites (id, group_id, email, invited_by, status, created_at)
-     VALUES (?, ?, ?, ?, 'pending', ?)`,
-    [newId(), groupId, inviteeEmail, inviterId, new Date().toISOString()],
-  );
+  if (dup) {
+    // Refresh the existing pending invite's timestamp rather than creating a
+    // duplicate row, then send the email again.
+    await dbRun("UPDATE invites SET created_at = ? WHERE id = ?", [now, dup.id]);
+  } else {
+    await dbRun(
+      `INSERT INTO invites (id, group_id, email, invited_by, status, created_at)
+       VALUES (?, ?, ?, ?, 'pending', ?)`,
+      [newId(), groupId, inviteeEmail, inviterId, now],
+    );
+  }
 
   await sendEmail({
     to: inviteeEmail,
